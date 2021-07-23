@@ -1,0 +1,5 @@
+package ipgeolocation
+
+func Import() {
+
+}
