@@ -7,7 +7,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCachedSearchLocal(t *testing.T) {
-	err := Import(context.Background())
+func TestImport(t *testing.T) {
+	arg := &ImportArguments{
+		DbDirectory:    "./db/",
+		MysqlURI:       "root:root@tcp(localhost:3315)/ipgeolocation",
+		wrongCountryID: 253, // TODO remove
+	}
+	err := Import(context.Background(), arg)
 	assert.NoError(t, err)
 }
