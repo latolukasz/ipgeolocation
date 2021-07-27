@@ -215,7 +215,7 @@ func importIpRange(engine *beeorm.Engine, flusher beeorm.Flusher, arguments *Imp
 		rangeV4Entity.End = ip2Uint(ip)
 		return rangeV4Entity, nil
 	}
-	return importFile(flusher, arguments, "db-ip-geolocation.csv", importer, 1)
+	return importFile(flusher, arguments, "db-ip-geolocation.csv", importer, 9000)
 }
 
 type importRecord func(record []string) (beeorm.Entity, error)
