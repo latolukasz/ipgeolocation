@@ -1,236 +1,101 @@
 package ipgeolocation
 
 import (
-	"context"
+	"bytes"
 	"encoding/binary"
 	"encoding/csv"
 	"fmt"
+	jsoniter "github.com/json-iterator/go"
 	"io"
+	"math"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-
-	"github.com/latolukasz/beeorm"
 )
 
 type ImportArguments struct {
-	DbDirectory    string
-	MysqlURI       string
-	wrongCountryID uint64
-	timeZones      map[string]uint16
-	timeZoneID     uint16
+	DbDirectory string
 }
 
-func Import(ctx context.Context, arguments *ImportArguments) error {
+func Import(arguments *ImportArguments) error {
 
-	var placeEntity *PlaceEntity
-	var countryEntity *CountryEntity
-	var ipRangeV4Entity *IpRangeV4Entity
-	var ipRangeV6Entity *IpRangeV6Entity
-	var timeZoneEntity *TimeZoneEntity
-
-	registry := beeorm.NewRegistry()
-	registry.RegisterMySQLPool(arguments.MysqlURI)
-	registry.RegisterEntity(placeEntity, countryEntity, ipRangeV4Entity, ipRangeV6Entity, timeZoneEntity)
-	registry.RegisterEnumStruct("ipgeolocation.ContinentEnum", ContinentEnum, ContinentEnum.EU)
-
-	validatedRegistry, err := registry.Validate(ctx)
-	if err != nil {
-		return err
-	}
-	engine := validatedRegistry.CreateEngine(ctx)
-
-	validatedRegistry.GetTableSchemaForEntity(ipRangeV4Entity).DropTable(engine)
-	validatedRegistry.GetTableSchemaForEntity(ipRangeV6Entity).DropTable(engine)
-	validatedRegistry.GetTableSchemaForEntity(timeZoneEntity).DropTable(engine)
-	validatedRegistry.GetTableSchemaForEntity(timeZoneEntity).UpdateSchema(engine)
-	validatedRegistry.GetTableSchemaForEntity(ipRangeV4Entity).UpdateSchema(engine)
-	validatedRegistry.GetTableSchemaForEntity(ipRangeV6Entity).UpdateSchema(engine)
-	validatedRegistry.GetTableSchemaForEntity(countryEntity).UpdateSchemaAndTruncateTable(engine)
-	validatedRegistry.GetTableSchemaForEntity(placeEntity).UpdateSchemaAndTruncateTable(engine)
-
-	arguments.timeZones = make(map[string]uint16)
-	flusher := engine.NewFlusher()
-	if strings.HasSuffix(arguments.DbDirectory, "/") {
+	if !strings.HasSuffix(arguments.DbDirectory, "/") {
 		arguments.DbDirectory += "/"
 	}
-	err = importPlace(flusher, arguments)
+	err := importPlace(arguments)
 	if err != nil {
 		return err
 	}
-	err = importCountry(flusher, arguments)
+	err = importCountry(arguments)
 	if err != nil {
 		return err
 	}
-	err = importIpRange(engine, flusher, arguments)
+	err = importIpRange(arguments)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func importPlace(flusher beeorm.Flusher, arguments *ImportArguments) error {
-	var placeEntity *PlaceEntity
-	importer := func(record []string) (beeorm.Entity, error) {
-		placeEntity = &PlaceEntity{}
-		id, err := strconv.ParseUint(record[0], 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		placeEntity.ID = uint32(id)
-		placeEntity.NameEN = record[1]
-		placeEntity.NameDE = record[2]
-		placeEntity.NameRU = record[3]
-		placeEntity.NameJA = record[4]
-		placeEntity.NameFR = record[5]
-		placeEntity.NameCN = record[6]
-		placeEntity.NameES = record[7]
-		placeEntity.NameCS = record[8]
-		placeEntity.NameIT = record[9]
-		return placeEntity, nil
+func importPlace(arguments *ImportArguments) error {
+	rows, err := importFileAll(arguments, "db-place.csv")
+	if err != nil {
+		return err
 	}
-	return importFile(flusher, arguments, "db-place.csv", importer, 5000)
+	places := make([]string, len(rows))
+	for i, row := range rows {
+		places[i] = row[1]
+	}
+	asJson, err := jsoniter.ConfigFastest.Marshal(places)
+	if err != nil {
+		return err
+	}
+	return saveFile(arguments, "db-place.db", asJson)
 }
 
-func importCountry(flusher beeorm.Flusher, arguments *ImportArguments) error {
-
-	var countryEntity *CountryEntity
-	importer := func(record []string) (beeorm.Entity, error) {
-		id, err := strconv.ParseUint(record[0], 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		if record[1] == "ZZ" {
-			arguments.wrongCountryID = id
-			return nil, nil
-		}
-		countryEntity = &CountryEntity{}
-
-		countryEntity.ID = uint16(id)
-		countryEntity.Continent = record[1]
-		id, err = strconv.ParseUint(record[2], 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		countryEntity.ContinentName = &PlaceEntity{ID: uint32(id)}
-		countryEntity.ISO2 = record[3]
-		countryEntity.ISO3 = record[4]
-		if record[5] != "" {
-			id, err = strconv.ParseUint(record[5], 10, 64)
-			if err != nil {
-				return nil, err
-			}
-		}
-		countryEntity.Name = &PlaceEntity{ID: uint32(id)}
-		if record[6] != "" {
-			id, err = strconv.ParseUint(record[6], 10, 64)
-			if err != nil {
-				return nil, err
-			}
-		}
-		countryEntity.CapitalCityName = &PlaceEntity{ID: uint32(id)}
-		countryEntity.CurrencyCode = record[7]
-		countryEntity.CurrencyName = record[8]
-		countryEntity.CurrencySuffix = record[9]
-		countryEntity.CallingCode = record[10]
-		countryEntity.Domain = record[11]
-		countryEntity.Languages = record[12]
-		return countryEntity, nil
-	}
-	return importFile(flusher, arguments, "db-country.csv", importer, 5000)
+func convertStringToInt(val string) int {
+	asInt, _ := strconv.Atoi(val)
+	return asInt
 }
 
-func importIpRange(engine *beeorm.Engine, flusher beeorm.Flusher, arguments *ImportArguments) error {
-	var rangeEntity Range
-	importer := func(record []string) (beeorm.Entity, error) {
-		if record[2] == "" {
-			return nil, nil
-		}
-		countryID, err := strconv.ParseUint(record[2], 10, 64)
-		if err != nil {
-			return nil, err
-		}
-		if countryID == arguments.wrongCountryID {
-			return nil, nil
-		}
-		rangeEntity = Range{}
-		rangeEntity.Country = &CountryEntity{ID: uint16(countryID)}
-		if record[3] != "" {
-			refID, err := strconv.ParseUint(record[3], 10, 64)
-			if err != nil {
-				return nil, err
-			}
-			rangeEntity.State = &PlaceEntity{ID: uint32(refID)}
-		}
-		if record[4] != "" {
-			refID, err := strconv.ParseUint(record[4], 10, 64)
-			if err != nil {
-				return nil, err
-			}
-			rangeEntity.District = &PlaceEntity{ID: uint32(refID)}
-		}
-		if record[5] != "" {
-			refID, err := strconv.ParseUint(record[5], 10, 64)
-			if err != nil {
-				return nil, err
-			}
-			rangeEntity.City = &PlaceEntity{ID: uint32(refID)}
-		}
-		if record[7] != "" {
-			floatVal, err := strconv.ParseFloat(record[7], 64)
-			if err != nil {
-				return nil, err
-			}
-			rangeEntity.Lat = float32(floatVal)
-		}
-		if record[8] != "" {
-			floatVal, err := strconv.ParseFloat(record[8], 64)
-			if err != nil {
-				return nil, err
-			}
-			rangeEntity.Lon = float32(floatVal)
-		}
-		timeZoneID, has := arguments.timeZones[record[10]]
-		if !has {
-			arguments.timeZoneID++
-			timeZoneID = arguments.timeZoneID
-			timeZone := &TimeZoneEntity{Name: record[10], ID: arguments.timeZoneID}
-			engine.Flush(timeZone)
-			arguments.timeZones[record[10]] = timeZoneID
-		}
-		rangeEntity.TimeZone = &TimeZoneEntity{ID: timeZoneID}
-
-		ip := net.ParseIP(record[0])
-		if ip.To4() == nil {
-			rangeV6Entity := &IpRangeV6Entity{Range: rangeEntity}
-			rangeV6Entity.Start = ip2String(ip)
-			ip = net.ParseIP(record[1])
-			rangeV6Entity.End = ip2String(ip)
-			return rangeV6Entity, nil
-		}
-		rangeV4Entity := &IpRangeV4Entity{Range: rangeEntity}
-		rangeV4Entity.Start = ip2Uint(ip)
-		ip = net.ParseIP(record[1])
-		rangeV4Entity.End = ip2Uint(ip)
-		return rangeV4Entity, nil
+func importCountry(arguments *ImportArguments) error {
+	rows, err := importFileAll(arguments, "db-country.csv")
+	if err != nil {
+		return err
 	}
-	return importFile(flusher, arguments, "db-ip-geolocation.csv", importer, 9000)
+	countries := make([][]interface{}, len(rows))
+	for i, row := range rows {
+		country := make([]interface{}, 6)
+		country[0] = row[1]
+		country[1] = convertStringToInt(row[2])
+		country[2] = row[3]
+		country[3] = convertStringToInt(row[5])
+		country[4] = row[7]
+		country[5] = strings.Trim(row[12], "")
+		countries[i] = country
+	}
+	asJson, err := jsoniter.ConfigFastest.Marshal(countries)
+	if err != nil {
+		return err
+	}
+	return saveFile(arguments, "db-country.db", asJson)
 }
 
-type importRecord func(record []string) (beeorm.Entity, error)
-
-func importFile(flusher beeorm.Flusher, arguments *ImportArguments, fileName string, importer importRecord, batch int) error {
-	f, err := os.Open(arguments.DbDirectory + fileName)
+func importIpRange(arguments *ImportArguments) error {
+	f, err := os.Open(arguments.DbDirectory + "db-ip-geolocation.csv")
 	if err != nil {
 		return err
 	}
 	defer func() {
 		_ = f.Close()
 	}()
+	buff := bytes.Buffer{}
+	timeZones := make(map[string]int)
+	timeZoneID := 0
+
 	reader := csv.NewReader(f)
-	total := 0
-	i := 0
+	bs := make([]byte, 4)
 	for {
 		record, err := reader.Read()
 		if err == io.EOF {
@@ -239,63 +104,79 @@ func importFile(flusher beeorm.Flusher, arguments *ImportArguments, fileName str
 		if err != nil {
 			return err
 		}
-		total++
-		e, err := importer(record)
+		ip := net.ParseIP(record[0]).To4()
+		if ip == nil {
+			break
+		}
+		_, _ = buff.Write(ip)
+		ip = net.ParseIP(record[1]).To4()
+		_, _ = buff.Write(ip)
+		binary.LittleEndian.PutUint32(bs, uint32(convertStringToInt(record[2])))
+		_, _ = buff.Write(bs)
+		binary.LittleEndian.PutUint32(bs, uint32(convertStringToInt(record[5])))
+		_, _ = buff.Write(bs)
+
+		floatVal, err := strconv.ParseFloat(record[7], 64)
 		if err != nil {
 			return err
 		}
-		if e == nil {
-			continue
+		lat := math.Float32bits(float32(floatVal))
+		binary.LittleEndian.PutUint32(bs, lat)
+		_, _ = buff.Write(bs)
+		floatVal, err = strconv.ParseFloat(record[8], 64)
+		if err != nil {
+			return err
 		}
-		flusher.Track(e)
-		i++
-		if i == batch {
-			err = flusher.FlushInTransactionWithCheck()
-			if err != nil {
-				return err
-			}
-			flusher.Clear()
-			i = 0
+		lon := math.Float32bits(float32(floatVal))
+		binary.LittleEndian.PutUint32(bs, lon)
+		_, _ = buff.Write(bs)
+
+		timeZone := record[10]
+		id, has := timeZones[timeZone]
+		if has {
+			binary.LittleEndian.PutUint32(bs, uint32(id))
+			_, _ = buff.Write(bs)
+		} else {
+			binary.LittleEndian.PutUint32(bs, uint32(timeZoneID))
+			_, _ = buff.Write(bs)
+			timeZones[timeZone] = timeZoneID
+			timeZoneID++
 		}
 	}
-	err = flusher.FlushInTransactionWithCheck()
+	timeZonesSlice := make([]string, len(timeZones))
+	for k, v := range timeZones {
+		timeZonesSlice[v] = k
+	}
+	asJson, err := jsoniter.ConfigFastest.Marshal(timeZonesSlice)
 	if err != nil {
 		return err
 	}
-	flusher.Clear()
-	return nil
+	err = saveFile(arguments, "db-timezones.db", asJson)
+	if err != nil {
+		return err
+	}
+	return saveFile(arguments, "db-ip-geolocation.db", buff.Bytes())
 }
 
-func ip2Uint(ip net.IP) uint32 {
-	return func() uint32 {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("IP %v %v\n", ip, r)
-			}
-		}()
-		ip = ip.To4()
-		return binary.BigEndian.Uint32(ip)
+func importFileAll(arguments *ImportArguments, fileName string) (records [][]string, err error) {
+	f, err := os.Open(arguments.DbDirectory + fileName)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = f.Close()
 	}()
+	return csv.NewReader(f).ReadAll()
 }
 
-func ip2String(ip net.IP) string {
-	return func() string {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("IP2 %v %v\n", ip, r)
-			}
-		}()
-		asString := strings.ReplaceAll(ip.To16().String(), "::", ":0000:00000:")
-		parts := strings.Split(asString, ":")
-		for i, part := range parts {
-			if len(part) < 4 {
-				parts[i] = strings.Repeat("0", 4-len(part)) + part
-			}
-		}
-		asString = strings.Join(parts, ":")
-		if len(parts) < 8 {
-			asString += strings.Repeat(":0000", 8-len(parts))
-		}
-		return asString
+func saveFile(arguments *ImportArguments, fileName string, data []byte) error {
+	f, err := os.Create(arguments.DbDirectory + fileName)
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer func() {
+		_ = f.Close()
 	}()
+	_, err = f.Write(data)
+	return err
 }

@@ -1,7 +1,6 @@
 package ipgeolocation
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,10 +8,8 @@ import (
 
 func TestImport(t *testing.T) {
 	arg := &ImportArguments{
-		DbDirectory:    "./db/",
-		MysqlURI:       "root:root@tcp(localhost:3315)/ipgeolocation",
-		wrongCountryID: 0,
+		DbDirectory: "./db/",
 	}
-	err := Import(context.Background(), arg)
+	err := Import(arg)
 	assert.NoError(t, err)
 }
