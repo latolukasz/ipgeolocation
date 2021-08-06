@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/csv"
-	"fmt"
-	jsoniter "github.com/json-iterator/go"
 	"io"
 	"math"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 type ImportArguments struct {
@@ -31,7 +31,7 @@ func Import(csvFilesDir string) error {
 	if err != nil {
 		return err
 	}
-	err = importIpRange(csvFilesDir)
+	err = importIPRange(csvFilesDir)
 	if err != nil {
 		return err
 	}
@@ -47,11 +47,11 @@ func importPlace(csvFilesDir string) error {
 	for i, row := range rows {
 		places[i] = row[1]
 	}
-	asJson, err := jsoniter.ConfigFastest.Marshal(places)
+	asJSON, err := jsoniter.ConfigFastest.Marshal(places)
 	if err != nil {
 		return err
 	}
-	return saveFile(csvFilesDir, "db-place.db", asJson)
+	return saveFile(csvFilesDir, "db-place.db", asJSON)
 }
 
 func convertStringToInt(val string) int {
@@ -75,14 +75,14 @@ func importCountry(csvFilesDir string) error {
 		country[5] = strings.Trim(row[12], "")
 		countries[i] = country
 	}
-	asJson, err := jsoniter.ConfigFastest.Marshal(countries)
+	asJSON, err := jsoniter.ConfigFastest.Marshal(countries)
 	if err != nil {
 		return err
 	}
-	return saveFile(csvFilesDir, "db-country.db", asJson)
+	return saveFile(csvFilesDir, "db-country.db", asJSON)
 }
 
-func importIpRange(csvFilesDir string) error {
+func importIPRange(csvFilesDir string) error {
 	f, err := os.Open(csvFilesDir + "db-ip-geolocation.csv")
 	if err != nil {
 		return err
@@ -147,11 +147,11 @@ func importIpRange(csvFilesDir string) error {
 	for k, v := range timeZones {
 		timeZonesSlice[v] = k
 	}
-	asJson, err := jsoniter.ConfigFastest.Marshal(timeZonesSlice)
+	asJSON, err := jsoniter.ConfigFastest.Marshal(timeZonesSlice)
 	if err != nil {
 		return err
 	}
-	err = saveFile(csvFilesDir, "db-timezones.db", asJson)
+	err = saveFile(csvFilesDir, "db-timezones.db", asJSON)
 	if err != nil {
 		return err
 	}
@@ -172,7 +172,7 @@ func importFileAll(csvFilesDir string, fileName string) (records [][]string, err
 func saveFile(csvFilesDir string, fileName string, data []byte) error {
 	f, err := os.Create(csvFilesDir + fileName)
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
 	defer func() {
 		_ = f.Close()

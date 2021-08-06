@@ -1,9 +1,10 @@
 package ipgeolocation
 
 import (
-	jsoniter "github.com/json-iterator/go"
 	"os"
 	"strings"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 var dbIP []byte
