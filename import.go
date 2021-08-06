@@ -18,28 +18,28 @@ type ImportArguments struct {
 	DbDirectory string
 }
 
-func Import(arguments *ImportArguments) error {
+func Import(csvFilesDir string) error {
 
-	if !strings.HasSuffix(arguments.DbDirectory, "/") {
-		arguments.DbDirectory += "/"
+	if !strings.HasSuffix(csvFilesDir, "/") {
+		csvFilesDir += "/"
 	}
-	err := importPlace(arguments)
+	err := importPlace(csvFilesDir)
 	if err != nil {
 		return err
 	}
-	err = importCountry(arguments)
+	err = importCountry(csvFilesDir)
 	if err != nil {
 		return err
 	}
-	err = importIpRange(arguments)
+	err = importIpRange(csvFilesDir)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func importPlace(arguments *ImportArguments) error {
-	rows, err := importFileAll(arguments, "db-place.csv")
+func importPlace(csvFilesDir string) error {
+	rows, err := importFileAll(csvFilesDir, "db-place.csv")
 	if err != nil {
 		return err
 	}
@@ -51,7 +51,7 @@ func importPlace(arguments *ImportArguments) error {
 	if err != nil {
 		return err
 	}
-	return saveFile(arguments, "db-place.db", asJson)
+	return saveFile(csvFilesDir, "db-place.db", asJson)
 }
 
 func convertStringToInt(val string) int {
@@ -59,8 +59,8 @@ func convertStringToInt(val string) int {
 	return asInt
 }
 
-func importCountry(arguments *ImportArguments) error {
-	rows, err := importFileAll(arguments, "db-country.csv")
+func importCountry(csvFilesDir string) error {
+	rows, err := importFileAll(csvFilesDir, "db-country.csv")
 	if err != nil {
 		return err
 	}
@@ -79,11 +79,11 @@ func importCountry(arguments *ImportArguments) error {
 	if err != nil {
 		return err
 	}
-	return saveFile(arguments, "db-country.db", asJson)
+	return saveFile(csvFilesDir, "db-country.db", asJson)
 }
 
-func importIpRange(arguments *ImportArguments) error {
-	f, err := os.Open(arguments.DbDirectory + "db-ip-geolocation.csv")
+func importIpRange(csvFilesDir string) error {
+	f, err := os.Open(csvFilesDir + "db-ip-geolocation.csv")
 	if err != nil {
 		return err
 	}
@@ -151,15 +151,15 @@ func importIpRange(arguments *ImportArguments) error {
 	if err != nil {
 		return err
 	}
-	err = saveFile(arguments, "db-timezones.db", asJson)
+	err = saveFile(csvFilesDir, "db-timezones.db", asJson)
 	if err != nil {
 		return err
 	}
-	return saveFile(arguments, "db-ip-geolocation.db", buff.Bytes())
+	return saveFile(csvFilesDir, "db-ip-geolocation.db", buff.Bytes())
 }
 
-func importFileAll(arguments *ImportArguments, fileName string) (records [][]string, err error) {
-	f, err := os.Open(arguments.DbDirectory + fileName)
+func importFileAll(csvFilesDir string, fileName string) (records [][]string, err error) {
+	f, err := os.Open(csvFilesDir + fileName)
 	if err != nil {
 		return nil, err
 	}
@@ -169,8 +169,8 @@ func importFileAll(arguments *ImportArguments, fileName string) (records [][]str
 	return csv.NewReader(f).ReadAll()
 }
 
-func saveFile(arguments *ImportArguments, fileName string, data []byte) error {
-	f, err := os.Create(arguments.DbDirectory + fileName)
+func saveFile(csvFilesDir string, fileName string, data []byte) error {
+	f, err := os.Create(csvFilesDir + fileName)
 	if err != nil {
 		fmt.Println(err)
 	}

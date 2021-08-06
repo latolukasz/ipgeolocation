@@ -1,17 +1,14 @@
 package ipgeolocation
 
 import (
-	"fmt"
-	"testing"
-
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 func TestSearch(t *testing.T) {
 	err := InitDB("./db/")
 	assert.NoError(t, err)
-
-	found, err := Search("109.173.165.107")
+	found, err := Search("37.143.210.32")
 	assert.NoError(t, err)
-	fmt.Printf("%v\n", found)
+	assert.Equal(t, "Sofia", found.City)
 }

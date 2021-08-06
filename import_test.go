@@ -7,9 +7,6 @@ import (
 )
 
 func TestImport(t *testing.T) {
-	arg := &ImportArguments{
-		DbDirectory: "./db/",
-	}
-	err := Import(arg)
+	err := Import("./db/")
 	assert.NoError(t, err)
 }
