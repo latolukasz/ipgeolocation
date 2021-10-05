@@ -41,8 +41,14 @@ func Search(ip string) (*Result, error) {
 		start := page
 		if bytes.Compare(netIP, dbIP[start:start+4]) >= 0 && bytes.Compare(netIP, dbIP[start+4:start+8]) <= 0 {
 			res := &Result{}
-			res.City = names[binary.LittleEndian.Uint32(dbIP[start+12:start+16])-1]
+			id := binary.LittleEndian.Uint32(dbIP[start+12 : start+16])
+			if id > 0 {
+				res.City = names[id-1]
+			}
 			country := countries[binary.LittleEndian.Uint32(dbIP[start+8:start+12])-1]
+			if country[0] == "ZZ" {
+				return nil, nil
+			}
 			res.Lat = math.Float32frombits(binary.LittleEndian.Uint32(dbIP[start+16 : start+20]))
 			res.Lon = math.Float32frombits(binary.LittleEndian.Uint32(dbIP[start+20 : start+24]))
 			res.Timezone = timezones[binary.LittleEndian.Uint32(dbIP[start+24:start+28])]
